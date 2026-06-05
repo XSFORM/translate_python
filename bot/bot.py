@@ -13,11 +13,14 @@ Environment variables (all required unless noted):
   DOMAIN_LIST_FILE    Path to domain_list.txt (default: /var/www/html/router/domain_list.txt)
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
 import re
 import textwrap
+import warnings
 from typing import Optional
 
 from telegram import (
@@ -36,6 +39,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.warnings import PTBUserWarning
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -406,19 +410,26 @@ def build_app() -> Application:
     )
 
     # Domains conversation
-    domains_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex(r"^🌐 Domains$"), domains_start)],
-        states={
-            WAIT_DOMAIN_ACTION: [CallbackQueryHandler(domains_action, pattern="^dom_")],
-            WAIT_ADD_DOMAIN: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, domains_add_receive)
-            ],
-            WAIT_REMOVE_DOMAIN: [
-                CallbackQueryHandler(domains_remove_choose, pattern="^dom_")
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"If 'per_message=False', 'CallbackQueryHandler' will not be tracked for every message\..*",
+            category=PTBUserWarning,
+        )
+        domains_conv = ConversationHandler(
+            entry_points=[MessageHandler(filters.Regex(r"^🌐 Domains$"), domains_start)],
+            states={
+                WAIT_DOMAIN_ACTION: [CallbackQueryHandler(domains_action, pattern="^dom_")],
+                WAIT_ADD_DOMAIN: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, domains_add_receive)
+                ],
+                WAIT_REMOVE_DOMAIN: [
+                    CallbackQueryHandler(domains_remove_choose, pattern="^dom_")
+                ],
+            },
+            fallbacks=[CommandHandler("cancel", cancel)],
+            per_message=False,
+        )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(set_ip_conv)
