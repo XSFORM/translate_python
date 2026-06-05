@@ -1,0 +1,23 @@
+[Unit]
+Description=Remote Refresh VPN IP Update Bot
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=remoterefresh
+Group=remoterefresh
+WorkingDirectory=/var/lib/remote_refresh
+EnvironmentFile=/etc/remote-refresh.env
+ExecStart=/var/lib/remote_refresh/venv/bin/python /opt/remote_refresh/bot/bot.py
+Restart=on-failure
+RestartSec=10
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/remote_refresh /var/www/html/router /var/www/html/current_vpn_ip.txt /var/www/html/ip_scan_off.txt /var/www/html/port_scan_off.txt
+
+[Install]
+WantedBy=multi-user.target
