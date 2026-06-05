@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+.tox/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.cover
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Runtime / generated files
+*.log
+*.pid
+*.lock
+
+# Secrets / env files
+.env
+*.env.local
+/etc/remote-refresh.env
+
+# Bot data (runtime, not committed)
+/var/lib/remote_refresh/
+
+# Nginx webroot runtime files (not in the repo)
+/var/www/
+
+# Temp files created by scripts
+/tmp/vpn_new_ip.txt
+/tmp/vpn_scan_flag.txt
+/tmp/vpn_update.lock
+/tmp/domain_list.*
