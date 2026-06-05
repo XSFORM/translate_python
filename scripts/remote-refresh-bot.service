@@ -17,7 +17,7 @@ RestartSec=10
 NoNewPrivileges=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/lib/remote_refresh /var/www/html/router /var/www/html/current_vpn_ip.txt /var/www/html/ip_scan_off.txt /var/www/html/port_scan_off.txt
+ReadWritePaths=/var/lib/remote_refresh /var/www/html/router /var/www/html
 
 [Install]
 WantedBy=multi-user.target

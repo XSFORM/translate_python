@@ -45,8 +45,7 @@ require_root
 # -------- Dependencies --------
 log "Installing dependencies..."
 apt-get update -q
-apt-get install -y -q nginx python3 python3-venv python3-pip sha256sum curl || \
-  apt-get install -y -q nginx python3 python3-venv python3-pip curl
+apt-get install -y -q nginx python3 python3-venv python3-pip curl
 
 # -------- System user --------
 if ! id "$BOT_USER" >/dev/null 2>&1; then

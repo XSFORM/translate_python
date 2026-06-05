@@ -70,7 +70,7 @@ DOMAIN_LIST_FILE = os.environ.get(
     WAIT_REMOVE_DOMAIN,
 ) = range(4)
 
-DOMAIN_RE = re.compile(r"^[A-Za-z0-9.-]+$")
+DOMAIN_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$")
 
 # -------- Auth --------
 def allowed(update: Update) -> bool:

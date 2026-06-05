@@ -74,18 +74,6 @@ if [ "$DOWNLOADED" -ne 1 ]; then
   exit 1
 fi
 
-# Ensure PATH export is present in the downloaded script (defensive)
-if ! grep -q 'export PATH' "$SCRIPT_DEST"; then
-  # Prepend a PATH line after the shebang
-  TMP_S="${SCRIPT_DEST}.patchtmp"
-  head -n1 "$SCRIPT_DEST" > "$TMP_S"
-  echo "export PATH=/sbin:/bin:/usr/sbin:/usr/bin:/opt/bin:/opt/sbin" >> "$TMP_S"
-  tail -n +2 "$SCRIPT_DEST" >> "$TMP_S"
-  mv "$TMP_S" "$SCRIPT_DEST"
-  chmod +x "$SCRIPT_DEST"
-  log "patched PATH into $SCRIPT_DEST"
-fi
-
 # -------- 3. Install cron entry (idempotent) --------
 mkdir -p "$CRON_DIR"
 CRON_LINE="*/15 * * * * $SCRIPT_DEST"

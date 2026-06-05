@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # install.sh  --  Bootstrap installer for the VPN IP update service.
 #
-# Run as root (or with sudo) on a fresh Ubuntu/Debian server:
+# Recommended: download and review the script before executing it.
+#   curl -fsSL https://raw.githubusercontent.com/XSFORM/translate_python/main/install.sh \
+#     -o /tmp/install.sh && less /tmp/install.sh && sudo bash /tmp/install.sh
+#
+# Quick one-liner (only use on a trusted network / verified repo):
 #   curl -fsSL https://raw.githubusercontent.com/XSFORM/translate_python/main/install.sh | sudo bash
-#   -- or --
+#
+# Or if you already have the repo cloned:
 #   sudo bash install.sh
 #
 # This script:
