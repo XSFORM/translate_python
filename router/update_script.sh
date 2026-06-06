@@ -79,6 +79,20 @@ is_valid_ipv4() {
   return 0
 }
 
+is_reserved_ipv4() {            # return 0 = reserved/local IP -> REJECT
+  ip="$1"
+  o1=$(echo "$ip" | cut -d. -f1); o2=$(echo "$ip" | cut -d. -f2)
+  case "$o1" in
+    0|10|127) return 0 ;;
+    169) [ "$o2" = "254" ] && return 0 ;;
+    172) [ "$o2" -ge 16 ] 2>/dev/null && [ "$o2" -le 31 ] 2>/dev/null && return 0 ;;
+    192) [ "$o2" = "168" ] && return 0 ;;
+    100) [ "$o2" -ge 64 ] 2>/dev/null && [ "$o2" -le 127 ] 2>/dev/null && return 0 ;;
+  esac
+  [ "$o1" -ge 224 ] 2>/dev/null && return 0
+  return 1
+}
+
 iface_has_inet() {
   _if="$1"
   [ -n "$_if" ] || return 1
@@ -203,9 +217,12 @@ for D in $(read_domains); do
     [ -z "$RAW_CLEAN" ] && continue
     NEW_IP="$RAW_CLEAN"
     echo "$NEW_IP" | grep -q ':' && NEW_IP=$(echo "$NEW_IP" | cut -d: -f1)
-    if is_valid_ipv4 "$NEW_IP"; then
+    if is_valid_ipv4 "$NEW_IP" && ! is_reserved_ipv4 "$NEW_IP"; then
       [ "$SHOW_FETCH" = "1" ] && log "fetch ok $URL -> $NEW_IP"
       ACTIVE_DOMAIN="$D"; SUCCESS=1; break
+    else
+      [ "$SHOW_FETCH" = "1" ] && log "reject ip from $D ($NEW_IP) -> try next domain"
+      continue
     fi
   fi
 done
@@ -244,7 +261,7 @@ fi
 
 [ "$IP_SCAN_OFF" -eq 1 ] && NEW_IP="$CUR_IP"
 
-if [ "$NEW_IP" = "0.0.0.0" ] || [ "$NEW_IP" = "127.0.0.1" ]; then
+if is_reserved_ipv4 "$NEW_IP"; then
   log "reject bad ip ($NEW_IP) -> keep current"
   echo "$NOW" > "$STAMP_FILE"; exit 0
 fi
