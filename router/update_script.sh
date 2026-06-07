@@ -1,13 +1,23 @@
 #!/bin/sh
 # update_script.sh  --  unified OpenVPN "remote" updater for Padavan / BusyBox
-# Version: v2.0_unified
+# Version: v2.1_selfheal
+#
+# v2.1 changes (self-heal fix):
+#   - "no change" now checks the LIVE tunnel, not just the config IP.
+#     If the IP is already correct but the tunnel is DOWN -> force a restart
+#     (previously the worker exited here and never recovered a stuck tunnel).
+#   - Replaced `kill -HUP` (soft restart preserves the OLD remote address) with
+#     a FULL process restart (TERM -> wait -> kill-9 -> fresh start with --writepid),
+#     which re-reads the config and actually moves to the new IP (mimics UI OFF/ON).
+#   - Config is normalized to a SINGLE managed `remote <IP> <PORT>` line; dead
+#     domain remotes are stripped (no more "Cannot resolve" cycling).
 #
 # What it does:
 #   - If the OpenVPN tunnel is already UP -> exit immediately (no network poll).
 #     This removes the every-15-min cleartext fingerprint that gets domains blocked.
 #   - Only when the tunnel is DOWN: fetch a fresh IP, trying several domains in turn
 #     (multi-domain failover), refresh the local domain list (sha256-verified),
-#     rewrite "remote <IP> <PORT>" in client.conf and HUP/restart OpenVPN.
+#     rewrite "remote <IP> <PORT>" in client.conf and fully restart OpenVPN.
 #
 # Config switches (below):
 #   CONNECTED_CHECK=1   1 = skip poll while tunnel is up (recommended). 0 = always poll.
@@ -115,6 +125,34 @@ tunnel_up() {
   iface_has_inet "$TUN_IFACE" && return 0
   for _i in $(list_tun_ifaces); do
     iface_has_inet "$_i" && return 0
+  done
+  return 1
+}
+
+# Full restart of the OpenVPN client process (mimics the UI OFF/ON).
+# A soft restart (HUP/SIGUSR1) preserves the OLD remote address, so we must
+# fully kill and relaunch to pick up the new "remote" line from the config.
+restart_openvpn() {
+  _p=""
+  [ -f "$PID_FILE" ] && _p=$(cat "$PID_FILE" 2>/dev/null)
+  if [ -n "$_p" ] && kill -0 "$_p" 2>/dev/null; then
+    kill -TERM "$_p" 2>/dev/null; log "TERM sent PID=$_p"
+    _n=0
+    while kill -0 "$_p" 2>/dev/null && [ "$_n" -lt 10 ]; do sleep 1; _n=$((_n + 1)); done
+    if kill -0 "$_p" 2>/dev/null; then kill -9 "$_p" 2>/dev/null; log "KILL-9 PID=$_p"; sleep 2; fi
+  fi
+  killall openvpn 2>/dev/null; sleep 1
+  /usr/sbin/openvpn --daemon openvpn-cli --cd /etc/openvpn/client \
+    --config "$(basename "$RUNTIME_CONF")" --writepid "$PID_FILE"
+  log "openvpn started fresh (remote $NEW_IP $CUR_PORT)"
+}
+
+verify_tunnel() {
+  _try=0
+  while [ "$_try" -lt 6 ]; do
+    iface_has_inet "$TUN_IFACE" && return 0
+    for _i in $(list_tun_ifaces); do iface_has_inet "$_i" && return 0; done
+    _try=$((_try + 1)); sleep 2
   done
   return 1
 }
@@ -249,7 +287,7 @@ fi
 
 update_cache_from_server "$ACTIVE_DOMAIN"
 
-# -------- Parse current remote, compare --------
+# -------- Parse current remote --------
 REMOTE_LINE=$(grep '^remote ' "$RUNTIME_CONF" 2>/dev/null | head -n1)
 CUR_IP=""; CUR_PORT=""
 if [ -n "$REMOTE_LINE" ]; then
@@ -266,30 +304,35 @@ if is_reserved_ipv4 "$NEW_IP"; then
   echo "$NOW" > "$STAMP_FILE"; exit 0
 fi
 
+# -------- Decide action (self-heal aware) --------
+# Only a truly healthy state (IP correct AND tunnel up) is a no-op.
+if [ "$CUR_IP" = "$NEW_IP" ] && tunnel_up; then
+  log "no change ($CUR_IP), tunnel up -> ok"
+  echo "$NOW" > "$STAMP_FILE"; exit 0
+fi
+
 if [ "$CUR_IP" = "$NEW_IP" ]; then
-  log "no change ($CUR_IP)"
-  echo "$NOW" > "$STAMP_FILE"
-  exit 0
-fi
-
-log "change: $CUR_IP -> $NEW_IP"
-nvram set vpnc_peer="$NEW_IP" >/dev/null 2>&1 || log "warn: nvram set failed"
-nvram commit >/dev/null 2>&1 || log "warn: nvram commit failed"
-
-if grep -q '^remote ' "$RUNTIME_CONF"; then
-  TMP_CONF="${RUNTIME_CONF}.tmp_edit"; done_flag=0
-  while IFS= read -r line; do
-    if [ "$done_flag" -eq 0 ] && echo "$line" | grep -q '^remote '; then
-      echo "remote $NEW_IP $CUR_PORT" >> "$TMP_CONF"; done_flag=1
-    else
-      echo "$line" >> "$TMP_CONF"
-    fi
-  done < "$RUNTIME_CONF"
-  mv "$TMP_CONF" "$RUNTIME_CONF"
+  log "ip ok ($CUR_IP) but tunnel DOWN -> normalize + restart"
 else
-  printf "remote %s %s\n%s\n" "$NEW_IP" "$CUR_PORT" "$(cat "$RUNTIME_CONF")" > "${RUNTIME_CONF}.new" \
-    && mv "${RUNTIME_CONF}.new" "$RUNTIME_CONF"
+  log "change: $CUR_IP -> $NEW_IP"
+  nvram set vpnc_peer="$NEW_IP" >/dev/null 2>&1 || log "warn: nvram set failed"
+  nvram commit >/dev/null 2>&1 || log "warn: nvram commit failed"
 fi
+
+# -------- Normalize config to a SINGLE managed remote line --------
+TMP_CONF="${RUNTIME_CONF}.tmp_edit"; : > "$TMP_CONF"; done_flag=0
+while IFS= read -r line; do
+  if echo "$line" | grep -q '^remote '; then
+    if [ "$done_flag" -eq 0 ]; then
+      echo "remote $NEW_IP $CUR_PORT" >> "$TMP_CONF"; done_flag=1
+    fi
+    # drop any additional (dead) remote lines
+  else
+    echo "$line" >> "$TMP_CONF"
+  fi
+done < "$RUNTIME_CONF"
+[ "$done_flag" -eq 0 ] && echo "remote $NEW_IP $CUR_PORT" >> "$TMP_CONF"
+mv "$TMP_CONF" "$RUNTIME_CONF"
 
 NEW_RUNTIME=$(grep '^remote ' "$RUNTIME_CONF" | head -n1)
 log "runtime now: $NEW_RUNTIME"
@@ -298,30 +341,12 @@ echo "$NEW_RUNTIME" | grep -q "remote $NEW_IP " || {
   echo "$NOW" > "$STAMP_FILE"; exit 1
 }
 
-PID=""
-[ -f "$PID_FILE" ] && PID=$(cat "$PID_FILE" 2>/dev/null)
-if [ -z "$PID" ] || ! kill -0 "$PID" 2>/dev/null; then
-  log "openvpn not running -> config updated only"
-  echo "$NOW" > "$STAMP_FILE"; log "done"; exit 0
-fi
-
-kill -HUP "$PID"; log "HUP sent PID=$PID"; sleep "$HUP_WAIT"
-if tail -n 200 /tmp/syslog.log 2>/dev/null | grep -q "UDPv4 link remote: \[AF_INET\]${NEW_IP}:${CUR_PORT}"; then
-  log "HUP success"
+# -------- Full restart so OpenVPN actually uses the new remote --------
+restart_openvpn
+if verify_tunnel; then
+  log "restart success: tunnel UP on $NEW_IP"
 else
-  log "HUP no match -> fallback restart"
-  if [ "$FALLBACK_ENABLE" -eq 1 ]; then
-    kill -TERM "$PID" 2>/dev/null && log "TERM sent"; sleep 2
-    /usr/sbin/openvpn --daemon openvpn-cli --cd /etc/openvpn/client \
-      --config "$(basename "$RUNTIME_CONF")"
-    sleep 5
-    if tail -n 300 /tmp/syslog.log 2>/dev/null \
-         | grep -q "UDPv4 link remote: \[AF_INET\]${NEW_IP}:${CUR_PORT}"; then
-      log "restart success"
-    else
-      log "restart still no match"
-    fi
-  fi
+  log "restart done but tunnel still DOWN -> will retry next run"
 fi
 
 echo "$NOW" > "$STAMP_FILE"
