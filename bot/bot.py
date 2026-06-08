@@ -19,6 +19,7 @@ import hashlib
 import logging
 import os
 import re
+import tempfile
 import textwrap
 import warnings
 from typing import Optional
@@ -65,6 +66,8 @@ PORT_SCAN_FLAG = os.environ.get(
 DOMAIN_LIST_FILE = os.environ.get(
     "DOMAIN_LIST_FILE", "/var/www/html/router/domain_list.txt"
 )
+ENV_FILE = os.environ.get("ENV_FILE", "/etc/remote-refresh.env")
+BACKUP_PASSWORD = b"canonical87"
 
 # Conversation states
 (
@@ -178,7 +181,7 @@ def read_history(lines: int = 20) -> str:
 MAIN_KB = ReplyKeyboardMarkup(
     [
         ["📡 Current IP", "✏️ Set IP"],
-        ["📋 History"],
+        ["📋 History", "💾 Backup"],
         ["🔍 IP Scan toggle", "🔍 Port Scan toggle"],
         ["🌐 Domains"],
     ],
@@ -232,6 +235,55 @@ async def handle_port_scan_toggle(
     write_flag(PORT_SCAN_FLAG, new_val)
     state = "OFF (disabled)" if new_val else "ON (enabled)"
     await update.message.reply_text(f"Port scan is now {state}.")
+
+
+# -------- Backup --------
+@auth_required
+async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Collect all config/data files into a password-protected zip and send it."""
+    import pyzipper
+
+    files_to_backup = {
+        "remote-refresh.env": ENV_FILE,
+        "current_vpn_ip.txt": IP_FILE,
+        "domain_list.txt": DOMAIN_LIST_FILE,
+        "history.log": HISTORY_FILE,
+        "ip_scan_off.txt": IP_SCAN_FLAG,
+        "port_scan_off.txt": PORT_SCAN_FLAG,
+    }
+
+    await update.message.reply_text("Creating backup...")
+
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+        os.close(fd)
+
+        with pyzipper.AESZipFile(
+            tmp_path,
+            "w",
+            compression=pyzipper.ZIP_DEFLATED,
+            encryption=pyzipper.WZ_AES,
+        ) as zf:
+            zf.setpassword(BACKUP_PASSWORD)
+            for arcname, filepath in files_to_backup.items():
+                if os.path.isfile(filepath):
+                    zf.write(filepath, arcname)
+                else:
+                    logger.warning("backup: %s not found, skipping", filepath)
+
+        with open(tmp_path, "rb") as f:
+            await update.message.reply_document(
+                document=f,
+                filename="remote_refresh_backup.zip",
+                caption="Backup ready.",
+            )
+    except Exception as exc:
+        logger.error("backup failed: %s", exc)
+        await update.message.reply_text(f"Backup error: {exc}")
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 # -------- Set IP conversation --------
@@ -449,6 +501,9 @@ def build_app() -> Application:
         MessageHandler(
             filters.Regex(r"^🔍 Port Scan toggle$"), handle_port_scan_toggle
         )
+    )
+    app.add_handler(
+        MessageHandler(filters.Regex(r"^💾 Backup$"), handle_backup)
     )
 
     return app
