@@ -244,7 +244,6 @@ async def handle_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     import pyzipper
 
     files_to_backup = {
-        "remote-refresh.env": ENV_FILE,
         "current_vpn_ip.txt": IP_FILE,
         "domain_list.txt": DOMAIN_LIST_FILE,
         "history.log": HISTORY_FILE,
